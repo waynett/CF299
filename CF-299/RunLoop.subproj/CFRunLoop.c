@@ -236,6 +236,9 @@ static CFStringRef __CFRunLoopCopyDescription(CFTypeRef cf) {
     return result;
 }
 
+/*
+ __CFRunLoopFindMode 找到当前rl下面是否包含modeName的mode，create参数表示如果不存在就创建
+ */
 /* call with rl locked */
 static CFRunLoopModeRef __CFRunLoopFindMode(CFRunLoopRef rl, CFStringRef modeName, Boolean create) {
     CFRunLoopModeRef rlm;
@@ -1337,7 +1340,7 @@ static int32_t __CFRunLoopRun(CFRunLoopRef rl, CFRunLoopModeRef rlm, CFTimeInter
 		//SetWaitableTimer(rl->_waitPort, &time, 0, NULL, NULL);
 	}
 #endif
-    if (seconds <= 0.0) {
+    if (seconds <= 0.0) {//如果secondes最终小于0，poll轮询设置为true
 	poll = true;
     }
     for (;;) {
@@ -1357,7 +1360,7 @@ static int32_t __CFRunLoopRun(CFRunLoopRef rl, CFRunLoopModeRef rlm, CFTimeInter
 
     	sourceHandledThisLoop = __CFRunLoopDoSources0(rl, rlm, stopAfterHandle);
 
-	if (sourceHandledThisLoop) {
+	if (sourceHandledThisLoop) {//如果source0至少有一个被执行，设置轮询poll为true
 	    poll = true;
 	}
 
@@ -1391,6 +1394,9 @@ static int32_t __CFRunLoopRun(CFRunLoopRef rl, CFRunLoopModeRef rlm, CFTimeInter
 	msg = (mach_msg_header_t *)buffer;
 	msg->msgh_size = sizeof(buffer);
 
+    /*
+     mach_msg() 切换到内核态，进入等待睡眠状态
+     */
 	/* In that sleep of death what nightmares may come ... */
 	try_receive:
 	msg->msgh_bits = 0;
@@ -1440,8 +1446,8 @@ static int32_t __CFRunLoopRun(CFRunLoopRef rl, CFRunLoopModeRef rlm, CFTimeInter
 	__CFRunLoopModeLock(rlm);
 	__CFRunLoopUnlock(rl);
 	if (!poll) {
-	    __CFRunLoopUnsetSleeping(rl);
-	    __CFRunLoopDoObservers(rl, rlm, kCFRunLoopAfterWaiting);
+	    __CFRunLoopUnsetSleeping(rl);//runloop设置为unsleep状态
+	    __CFRunLoopDoObservers(rl, rlm, kCFRunLoopAfterWaiting);//runloop进入非睡眠等待状态
 	}
 	poll = false;
 	__CFRunLoopModeUnlock(rlm);
@@ -1459,7 +1465,7 @@ static int32_t __CFRunLoopRun(CFRunLoopRef rl, CFRunLoopModeRef rlm, CFTimeInter
 	    } else if (NULL != (rls = __CFRunLoopModeFindSourceForMachPort(rl, rlm, msg->msgh_local_port))) {
 		mach_msg_header_t *reply = NULL;
 		__CFRunLoopUnlock(rl);
-		if (__CFRunLoopDoSource1(rl, rlm, rls, msg, msg->msgh_size, &reply)) {
+		if (__CFRunLoopDoSource1(rl, rlm, rls, msg, msg->msgh_size, &reply)) {//执行source1，一次执行一个__CFRunLoopDoSource1，__CFRunLoopDoSources0带了s执行多个
 		    sourceHandledThisLoop = true;
 		}
 		if (NULL != reply) {
@@ -1472,7 +1478,7 @@ static int32_t __CFRunLoopRun(CFRunLoopRef rl, CFRunLoopModeRef rlm, CFTimeInter
 		rlt = __CFRunLoopModeFindTimerForMachPort(rlm, msg->msgh_local_port);
 		 __CFRunLoopUnlock(rl);
 		if (NULL != rlt) {
-		    __CFRunLoopDoTimer(rl, rlm, rlt);
+		    __CFRunLoopDoTimer(rl, rlm, rlt);//执行timer
 		}
 	    }
 	    if (msg != (mach_msg_header_t *)buffer) CFAllocatorDeallocate(kCFAllocatorSystemDefault, msg);
@@ -1509,6 +1515,9 @@ static int32_t __CFRunLoopRun(CFRunLoopRef rl, CFRunLoopModeRef rlm, CFTimeInter
     }
 }
 
+/*
+ CFRunLoopRun无限循环，do while中包含CFRunLoopRunSpecific
+ */
 void CFRunLoopRun(void) {	/* DOES CALLOUT */
     int32_t result;
     do {
@@ -1524,7 +1533,7 @@ SInt32 CFRunLoopRunSpecific(CFRunLoopRef rl, CFStringRef modeName, CFTimeInterva
     if (__CFRunLoopIsDeallocating(rl)) return kCFRunLoopRunFinished;
     __CFRunLoopLock(rl);
     currentMode = __CFRunLoopFindMode(rl, modeName, false);
-    if (NULL == currentMode || __CFRunLoopModeIsEmpty(rl, currentMode)) {
+    if (NULL == currentMode || __CFRunLoopModeIsEmpty(rl, currentMode)) {//如果runloop下面不存在对应的mode，就直接退出CFRunLoopRunSpecific
 	if (currentMode) __CFRunLoopModeUnlock(currentMode);
 	__CFRunLoopUnlock(rl);
 	return kCFRunLoopRunFinished;
